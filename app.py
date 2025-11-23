@@ -41,6 +41,8 @@ show_aqi = st.sidebar.checkbox("Show Air Quality Data")
 with st.spinner("Training AI Risk Model (MODIS 7-Day)..."):
 
     df_train = load_firms_7d()
+
+    # MODIS 7-day has latitude/longitude already
     df_train = add_simple_risk(df_train)
 
     model = train_risk_model(df_train)
@@ -70,6 +72,7 @@ with st.spinner("Fetching live FIRMS data..."):
     common_cols = list(common_cols)
 
     dfs = [d[common_cols] for d in dfs]
+
     df = pd.concat(dfs, ignore_index=True)
 
     df = filter_region(df, region)
@@ -82,13 +85,8 @@ with st.spinner("Fetching live FIRMS data..."):
 
     df = add_simple_risk(df)
 
-    df = df.rename(columns={"latitude": "lat", "longitude": "lon"}, errors="ignore")
-
-    # Ensure lat/lon exist
-    if "lat" not in df.columns:
-        df["lat"] = 0
-    if "lon" not in df.columns:
-        df["lon"] = 0
+    # Standardize naming
+    df = df.rename(columns={"latitude": "lat", "longitude": "lon"})
 
 
 # -------------------------------------------------
@@ -96,31 +94,7 @@ with st.spinner("Fetching live FIRMS data..."):
 # -------------------------------------------------
 df["hour"] = df["acq_datetime"].dt.hour
 
-X_pred = df[["brightness", "confidence", "frp", "lat", "lon", "hour"]].copy()
-
-# Fix NaN issues
-X_pred = X_pred.fillna(0)
-
-# Fix dtype issues
-for col in X_pred.columns:
-    try:
-        X_pred[col] = X_pred[col].astype(float)
-    except:
-        X_pred[col] = 0.0
-
-# Force column order to match model training
-try:
-    X_pred = X_pred[model.feature_names_in_]
-except:
-    pass
-
-# DEBUG OUTPUT
-with st.expander("🔍 DEBUG INFO (ONLY FOR DEVELOPMENT)", expanded=True):
-    st.write("X_pred shape:", X_pred.shape)
-    st.write("X_pred dtypes:", X_pred.dtypes)
-    st.write("Model expects:", list(model.feature_names_in_))
-    st.write("Any NaNs:", X_pred.isna().sum())
-
+X_pred = df[["brightness", "confidence", "frp", "lat", "lon", "hour"]]
 df["ai_risk"] = model.predict(X_pred)
 
 
@@ -178,7 +152,7 @@ with st.expander("🤖 AI Model Training Summary (7-day MODIS)"):
     st.write("### 📈 Feature Importances")
     if hasattr(model, "feature_importances_"):
         importances = pd.DataFrame({
-            "feature": ["brightness", "confidence", "frp", "lat", "lon", "hour"],
+            "feature": ["brightness", "confidence", "frp", "latitude", "longitude", "hour"],
             "importance": model.feature_importances_
         }).sort_values("importance", ascending=False)
 
@@ -195,10 +169,10 @@ df["color_hex"] = color_from_risk(df["risk"])
 
 def safe_hex_to_rgb(h):
     if not isinstance(h, str):
-        return [255, 255, 255]
+        return [255, 255, 255]  # fallback white
     h = h.strip().lstrip("#")
     if len(h) != 6:
-        return [255, 255, 255]
+        return [255, 255, 255]  # fallback white
     return [int(h[i:i+2], 16) for i in (0, 2, 4)]
 
 df["color"] = df["color_hex"].apply(safe_hex_to_rgb)
@@ -241,14 +215,14 @@ st.pydeck_chart(pdk.Deck(
     tooltip=tooltip
 ))
 
-st.markdown("**Legend:** 🟢 low, 🟡 medium, 🔴 high risk")
+st.markdown("*Legend:* 🟢 low, 🟡 medium, 🔴 high risk")
 
 
 # -------------------------------------------------
 # AIR QUALITY SECTION
 # -------------------------------------------------
 if show_aqi:
-    st.subheader("🌫️ Current Air Quality in Indonesia (PM2.5)")
+    st.subheader("🌫 Current Air Quality in Indonesia (PM2.5)")
     aqi_df = get_air_quality_data()
 
     if len(aqi_df) == 0:
@@ -259,4 +233,4 @@ if show_aqi:
         if "pm25" in aqi_df.columns:
             st.metric("Average PM2.5 (µg/m³)", f"{aqi_df['pm25'].mean():.1f}")
         else:
-            st.info("No PM2.5 readings available.")
+            st.info("No PM2.5 readings available.")
